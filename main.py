@@ -1,41 +1,38 @@
 from playwright.sync_api import Playwright, sync_playwright
 
-from post import parse_json_post_field
+from export import export_csv, export_json
+from parse import parse_json_post_field
 
 stop_scroll = False
 records = {}
+
+
+def block_resources(route):
+    resource_type = route.request.resource_type
+    route.abort() if resource_type in {"image"} else route.continue_()
+
+
 def handle_response(response):
     global stop_scroll
-    global records
 
     if "api/mach/api/Article/Stocks" in response.url:
         data = response.json()
         print(response.url)
-        print(f"更新 {len(data["articles"])} 筆", end="")
+        print(f"更新 {len(data['articles'])} 筆", end="")
 
         stop_scroll, parse_data = parse_json_post_field(articles=data["articles"])
         records.update(parse_data)
 
         print(f"，已累積 {len(records)} 筆")
 
-def block_resources(route):
-    resource_type = route.request.resource_type
 
-    if resource_type in {
-        "image",
-    }:
-        route.abort()
-    else:
-        route.continue_()
-
-def run(playwright: Playwright):
+def run(playwright: Playwright, code: str):
     browser = playwright.webkit.launch(headless=True)
     context = browser.new_context()
     page = browser.new_page()
     page.route("**/*", block_resources)
     page.on("response", handle_response)
-    # page.goto("https://www.cmoney.tw/forum/stock/6214")
-    page.goto("https://www.cmoney.tw/forum/stock/2317")
+    page.goto(f"https://www.cmoney.tw/forum/stock/{code}")
     page.locator('iframe[title="「使用 Google 帳戶登入」對話方塊"]').content_frame.get_by_role(
         "button", name="關閉"
     ).click()
@@ -49,25 +46,24 @@ def run(playwright: Playwright):
     context.close()
     browser.close()
 
-    import json
-    with open("output/records.json", "w", encoding="utf-8") as file:
-        json.dump(
-            records,
-            file,
-            ensure_ascii=False,
-            indent=4,
-        )
 
-import time
+def main():
+    global records
+    with sync_playwright() as playwright:
+        for code in ["6214", "2317"]:
+            run(playwright, code)
+            export_json(code=code, records=records)
+            export_csv(code=code, records=records)
+            records = {}
 
-start_time = time.perf_counter()
-with sync_playwright() as playwright:
-    run(playwright)
 
-end_time = time.perf_counter()
-elapsed_time = time.perf_counter() - start_time
-minutes, seconds = divmod(elapsed_time, 60)
+if __name__ == "__main__":
+    import time
 
-print(
-    f"總共所花費時間為 {int(minutes)} 分 {seconds:.2f} 秒"
-)
+    start_time = time.perf_counter()
+    main()
+    end_time = time.perf_counter()
+    elapsed_time = time.perf_counter() - start_time
+    minutes, seconds = divmod(elapsed_time, 60)
+
+    print(f"總共所花費時間為 {int(minutes)} 分 {seconds:.2f} 秒")
