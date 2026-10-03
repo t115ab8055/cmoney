@@ -27,7 +27,7 @@ def handle_response(response):
 
 
 def run(playwright: Playwright, code: str):
-    browser = playwright.chromium.launch(headless=False)
+    browser = playwright.chromium.launch(headless=True)
     context = browser.new_context()
     page = browser.new_page()
     page.route("**/*", block_resources)
@@ -48,12 +48,14 @@ def run(playwright: Playwright, code: str):
 
 
 def main():
+    global stop_scroll
     global records
     with sync_playwright() as playwright:
         for code in ["6214", "2317"]:
             run(playwright, code)
             export_json(code=code, records=records)
             export_csv(code=code, records=records)
+            stop_scroll = False
             records = {}
 
 
