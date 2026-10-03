@@ -1,0 +1,29 @@
+[project]
+name = "cmoney"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "chengexi", email = "t115ab8055@ntut.org.tw" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "beautifulsoup4>=4.15.0",
+    "playwright>=1.63.0",
+    "pydantic>=2.13.5",
+    "requests>=2.34.2",
+]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.9",
+]
