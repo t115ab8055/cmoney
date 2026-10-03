@@ -27,15 +27,15 @@ def handle_response(response):
 
 
 def run(playwright: Playwright, code: str):
-    browser = playwright.webkit.launch(headless=True)
+    browser = playwright.chromium.launch(headless=False)
     context = browser.new_context()
     page = browser.new_page()
     page.route("**/*", block_resources)
     page.on("response", handle_response)
     page.goto(f"https://www.cmoney.tw/forum/stock/{code}")
-    page.locator('iframe[title="「使用 Google 帳戶登入」對話方塊"]').content_frame.get_by_role(
-        "button", name="關閉"
-    ).click()
+    # page.locator('iframe[title="「使用 Google 帳戶登入」對話方塊"]').content_frame.get_by_role(
+    #     "button", name="關閉"
+    # ).click()
     page.locator(".sort__selected").click()
     page.get_by_text("最新", exact=True).click()
 
