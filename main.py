@@ -18,10 +18,21 @@ def handle_response(response):
 
         print(f"，已累積 {len(records)} 筆")
 
+def block_resources(route):
+    resource_type = route.request.resource_type
+
+    if resource_type in {
+        "image",
+    }:
+        route.abort()
+    else:
+        route.continue_()
+
 def run(playwright: Playwright):
-    browser = playwright.webkit.launch(headless=False)
+    browser = playwright.webkit.launch(headless=True)
     context = browser.new_context()
     page = browser.new_page()
+    page.route("**/*", block_resources)
     page.on("response", handle_response)
     # page.goto("https://www.cmoney.tw/forum/stock/6214")
     page.goto("https://www.cmoney.tw/forum/stock/2317")
@@ -33,7 +44,7 @@ def run(playwright: Playwright):
 
     while not stop_scroll:
         page.mouse.wheel(0, 3000)
-        # page.wait_for_timeout(1)
+        page.wait_for_timeout(100)
 
     context.close()
     browser.close()
