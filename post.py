@@ -1,115 +1,62 @@
-from playwright.sync_api import Locator, Page
-from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from datetime import datetime
 
 
-def parse_reactions(page: Page, post: Locator) -> dict[str, int]:
+def parse_json_reactions(article: dict) -> dict[str, int]:
     emoji_names = {
         "like": "讚",
-        "happy": "哈",
+        "laugh": "哈",
         "money": "賺",
-        "surprise": "哇",
-        "sad": "嗚嗚",
-        "confuse": "真的嗎",
+        "shock": "哇",
+        "cry": "嗚嗚",
+        "think": "真的嗎",
         "angry": "怒",
     }
 
-    reactions = dict.fromkeys(emoji_names.values(), 0)
+    emoji_count = article.get("emojiCount", {})
 
-    post.locator(".articleResponse__emoji").click(timeout=2000)
-    page.locator(".articleModal__select:visible").click(timeout=3000)
-
-    menu = page.locator(".articleModal__menu:visible")
-    menu.wait_for(state="visible")
-
-    for code, name in emoji_names.items():
-        item = menu.locator(f'.articleModal__item:has(img[data-src*="icon_emoji_{code}."])')
-        reactions[name] = int(item.locator(".articleModal__num").text_content().strip())
-
-    page.get_by_role("button", name="Close", exact=True).click(timeout=2000)
-    menu.wait_for(state="hidden", timeout=2000)
-
-    return reactions
+    return {name: emoji_count.get(code, 0) for code, name in emoji_names.items()}
 
 
-def parse_post_field(page: Page, post: Locator) -> dict[str, dict]:
-    article = post.locator(".normal__info a")
-    author = post.locator(".normal__popup a")
-    title = post.locator("h3.articleContent__title")
+def parse_json_post_field(articles: list[dict]) -> tuple[bool, dict[str, dict]]:
 
-    article_id = article.get_attribute("href", timeout=2000).split("/")[-1]
+    parse_data = {}
+    for article in articles:
+        article_id = str(article["id"])
+        content = article.get("content", {})
 
-    return {
-        article_id: {
+        # API 的 createTime 是毫秒 timestamp
+        create_time = article.get("createTime")
+
+        created_at = None
+        if create_time:
+            create_time = datetime.fromtimestamp(  # noqa: DTZ006
+                create_time / 1000
+            )
+
+            if create_time.year < 2026:
+                return True, parse_data
+
+            created_at = create_time.strftime("%Y/%m/%d %H:%M:%S")
+
+        parse_data[article_id] = {
             "article_id": article_id,
-            "author_id": author.get_attribute("href", timeout=2000).split("/")[-1],
-            "author_name": author.inner_text(timeout=2000).strip(),
-            "created_at": article.inner_text(timeout=2000).strip(),
-            "title": title.inner_text(timeout=2000).strip() if title.count() else None,
+            "author_id": str(article.get("creatorId"))
+            if article.get("creatorId") is not None
+            else None,
+            "created_at": created_at,
+            "title": content.get("title"),
             "stocks": [
                 {
-                    "code": stock.get_attribute("href", timeout=2000).split("/")[-1],
-                    "name": stock.inner_text(timeout=2000).strip(),
+                    "code": tag.get("key"),
+                    "name": 0,
                 }
-                for stock in post.locator(".articleTags__btn[href*='/forum/stock/']").all()
+                for tag in content.get("commodityTags", [])
+                if tag.get("type") == "Stock"
             ],
-            "content": "\n".join(
-                post.locator(".articleContent__text .textRule__line > span").all_text_contents()
-            ),
-            "donate_points": int(
-                post.locator(".articleResponse__donate")
-                .inner_text(timeout=2000)
-                .strip()
-                .replace("P", "")
-            ),
-            "comment_count": int(
-                post.locator(".articleResponse__comment")
-                .inner_text(timeout=2000)
-                .strip()
-                .replace("則留言", "")
-                .replace("則回答", "")
-            ),
-            "reactions": parse_reactions(
-                page=page,
-                post=post,
-            ),
+            "content": content.get("text", ""),
+            "donate_points": article.get("donation", 0),
+            "comment_count": article.get("commentCount", 0),
+            "reactions": parse_json_reactions(article),
         }
-    }
 
-
-def collect_posts(page: Page, posts: Locator, records: dict[str, dict]) -> None:
-    before_count = len(records)
-
-    try:
-        for index, post in enumerate(posts.all(), start=1):
-            posts.nth(index).scroll_into_view_if_needed(timeout=2000)
-            page.wait_for_timeout(1500)
-            records.update(
-                parse_post_field(
-                    page=page,
-                    post=post,
-                )
-            )
-    except PlaywrightTimeoutError:
-        target_post = posts.nth(index - 1)
-        target_post.last.scroll_into_view_if_needed(timeout=2000)
-        target_post.last.hover(timeout=2000)
-
-        print(f"第 {index} 篇已失效，結束這一輪")
-        print(f"新增：{len(records) - before_count} 筆｜累計：{len(records)} 筆")
-        return
-
-    print(f"新增：{len(records) - before_count} 筆｜累計：{len(records)} 筆")
-    posts.last.scroll_into_view_if_needed(timeout=2000)
-    posts.last.hover(timeout=2000)
-
-
-def get_posts(page: Page) -> Locator:
-    virtual_list = page.locator(".articleContainer__virtualList").first
-    posts = virtual_list.locator(".articleVirtualItem")
-
-    posts.first.wait_for(
-        state="visible",
-        timeout=10000,
-    )
-
-    return posts
+    return False, parse_data
