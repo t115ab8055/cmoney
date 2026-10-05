@@ -67,14 +67,14 @@ def get_cmoney_monthly_records(code: str, month: int, cursor: str) -> dict[dict[
             created_time = data.get("create_time")
             target_date = datetime(2026, month, 1, 0, 0)
 
-
             if created_time > target_date:
                 print(f"created_time: {created_time}, target_date: {target_date}")
                 records.update(record)
             else:
                 return records
-    
+
         cursor = response.json().get("nextCursor")
+
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -89,17 +89,11 @@ def main(code: str = "2317"):
     tasks = []
 
     with ThreadPoolExecutor(max_workers=len(cursors) - 1) as executor:
-
         for index in range(len(cursors) - 1):
-
             target_month = len(cursors) - (index + 1)
             cursor = cursors[index]
 
-            print(
-                f"準備取得 {code} 股票，"
-                f"2026 年 {target_month} 月文章，"
-                f"cursor={cursor}"
-            )
+            print(f"準備取得 {code} 股票，2026 年 {target_month} 月文章，cursor={cursor}")
 
             future = executor.submit(
                 get_cmoney_monthly_records,
@@ -108,28 +102,16 @@ def main(code: str = "2317"):
                 cursor=cursor,
             )
 
-            tasks.append(
-                (target_month, future)
-            )
+            tasks.append((target_month, future))
 
         for target_month, future in tasks:
-
             monthly_records = future.result()
 
-            print(
-                f"2026 年 {target_month} 月完成，"
-                f"取得 {len(monthly_records)} 筆"
-            )
+            print(f"2026 年 {target_month} 月完成，取得 {len(monthly_records)} 筆")
 
-            records.update(
-                monthly_records
-            )
+            records.update(monthly_records)
 
-    print(
-        f"已取得 {code} 股票，"
-        f"2026 年文章資料，"
-        f"總共 {len(records)} 筆"
-    )
+    print(f"已取得 {code} 股票，2026 年文章資料，總共 {len(records)} 筆")
 
     export_csv(
         code=code,
