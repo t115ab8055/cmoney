@@ -76,26 +76,66 @@ def get_cmoney_monthly_records(code: str, month: int, cursor: str) -> dict[dict[
     
         cursor = response.json().get("nextCursor")
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 def main(code: str = "2317"):
 
     records = {}
+
     cursors = get_yearly_cursors(year=2026)
     cursors = cursors[::-1]
-    
-    for index in range(len(cursors) - 1):
-        print(
-            f"正在取得 {code} 股票，{2026} 年 {len(cursors) - (index + 1)} 月的文章資料，cursor 為 {cursors[index]}"
-        )
-        records.update(
-            get_cmoney_monthly_records(
-                code=code, month=len(cursors) - (index + 1), cursor=cursors[index]
-            )
-        )
-        print("#" * 50)
 
-    print(f"已取得 {code} 股票，{2026} 年的文章資料，總共 {len(records)} 筆")
-    export_csv(code=code, records=records)
+    tasks = []
+
+    with ThreadPoolExecutor(max_workers=len(cursors) - 1) as executor:
+
+        for index in range(len(cursors) - 1):
+
+            target_month = len(cursors) - (index + 1)
+            cursor = cursors[index]
+
+            print(
+                f"準備取得 {code} 股票，"
+                f"2026 年 {target_month} 月文章，"
+                f"cursor={cursor}"
+            )
+
+            future = executor.submit(
+                get_cmoney_monthly_records,
+                code=code,
+                month=target_month,
+                cursor=cursor,
+            )
+
+            tasks.append(
+                (target_month, future)
+            )
+
+        for target_month, future in tasks:
+
+            monthly_records = future.result()
+
+            print(
+                f"2026 年 {target_month} 月完成，"
+                f"取得 {len(monthly_records)} 筆"
+            )
+
+            records.update(
+                monthly_records
+            )
+
+    print(
+        f"已取得 {code} 股票，"
+        f"2026 年文章資料，"
+        f"總共 {len(records)} 筆"
+    )
+
+    export_csv(
+        code=code,
+        records=records,
+    )
+    print(f"總共 {len(cursors) - 1} 個 thread，已完成資料匯出至 CSV 檔案")
 
 
 if __name__ == "__main__":
@@ -105,7 +145,8 @@ if __name__ == "__main__":
 
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     start_time = time.perf_counter()
-    main(code="6214")
+    # main(code="6214")
+    main()
     end_time = time.perf_counter()
     elapsed_time = time.perf_counter() - start_time
     minutes, seconds = divmod(elapsed_time, 60)
