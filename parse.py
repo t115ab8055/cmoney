@@ -17,7 +17,7 @@ def parse_json_reactions(article: dict) -> dict[str, int]:
     return {name: emoji_count.get(code, 0) for code, name in emoji_names.items()}
 
 
-def parse_json_post_field(articles: list[dict]) -> tuple[bool, dict[str, dict]]:
+def parse_json_post_field(articles: list[dict]) -> dict[str, dict]:
 
     parse_data = {}
     for article in articles:
@@ -33,9 +33,6 @@ def parse_json_post_field(articles: list[dict]) -> tuple[bool, dict[str, dict]]:
                 create_time / 1000
             )
 
-            if create_time.year < 2026:
-                return True, parse_data
-
             created_at = create_time.strftime("%Y/%m/%d %H:%M:%S")
 
         parse_data[article_id] = {
@@ -43,6 +40,7 @@ def parse_json_post_field(articles: list[dict]) -> tuple[bool, dict[str, dict]]:
             "author_id": str(article.get("creatorId"))
             if article.get("creatorId") is not None
             else None,
+            "create_time": create_time,
             "created_at": created_at,
             "title": content.get("title"),
             "stocks": [
@@ -59,4 +57,4 @@ def parse_json_post_field(articles: list[dict]) -> tuple[bool, dict[str, dict]]:
             "reactions": parse_json_reactions(article),
         }
 
-    return False, parse_data
+    return parse_data

@@ -1,69 +1,111 @@
-from playwright.sync_api import Playwright, sync_playwright
+from datetime import datetime
 
-from export import export_csv, export_json
+import requests
+import urllib3
+from requests import Response
+
+from cursor import calculate_cursor
+from export import export_csv
 from parse import parse_json_post_field
 
-stop_scroll = False
-records = {}
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
-def block_resources(route):
-    resource_type = route.request.resource_type
-    route.abort() if resource_type in {"image"} else route.continue_()
+def get_yearly_cursors(year: int) -> list:
+    cursor = []
+    for month in range(1, 12):
+        cursor.append(calculate_cursor(year=year, month=month, day=1))
+    return cursor
 
 
-def handle_response(response):
-    global stop_scroll
+def get_parameter(code: str) -> tuple[str, dict[str, str], dict[str, int]]:
+    headers = {
+        "accept": "application/json, text/plain, */*",
+        "authorization": "Bearer eyJhbGciOiJSUzI1NiIsImtpZCI6IkEydWczbUIxRFQiLCJ0eXAiOiJKV1QifQ.eyJzdWIiOiI0MzYyMjYzIiwidXNlcl9ndWlkIjoiNjU3MzQ4NjUtMzQ5Yy00ZGE2LTllNmQtZmE5MzVmYWIwZjNkIiwidG9rZW5faWQiOiIwIiwiYXBwX2lkIjoiMjEiLCJpc19ndWVzdCI6dHJ1ZSwibmJmIjoxNzkxMTc2NzAwLCJleHAiOjE3OTEyNjY3MDAsImlhdCI6MTc5MTE4MDMwMCwiaXNzIjoiaHR0cHM6Ly93d3cuY21vbmV5LnR3IiwiYXVkIjoiY21vbmV5YXBpIn0.VUyIH8B-aa66vaS3vKBUYDLq7uvbQW3tIkge_KuK5I1SnOr61js_yhkEL7A61y4FW8akvSODA0jtRsOR1638j3tkIP7-Q7npb4xh5PrLLmjaHfBmp_BayUXjx7m0XV7HY9uvHaB2cveY1igyIn2cqVhHSLN3uAj0H7S8obNaiusagiPXPx5Odn5fRKGLslN0FIWizoj7uZg6af9oV2d6WL9Ig9VEgRftaxbaMci0OwFjptwY8IvZzuu_-27UidyYfLVhYZl19wtGKFhBNEyx9zkHUijzhhGdHzDGxQ7-Ljx9veUcrrWu15ecAVCwzD9bsKPNDgjVigPwx0wdkwNy6A",
+        "referer": f"https://www.cmoney.tw/forum/stock/{code}",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+        "x-version": "3.0",
+    }
+    params = {
+        "limit": 20,
+    }
 
-    if "api/mach/api/Article/Stocks" in response.url:
+    url = f"https://www.cmoney.tw/api/mach/api/Article/Stocks/{code}/AllLatest"
+
+    return url, headers, params
+
+
+def get_parse_data(response: Response) -> dict[str, dict]:
+    print(
+        f"取得 {response.url} 資料，狀態碼: {response.status_code}，格式: {response.headers.get('content-type')}"
+    )
+
+    if response.headers.get("content-type") == "application/json; charset=utf-8":
         data = response.json()
-        print(response.url)
-        print(f"更新 {len(data['articles'])} 筆", end="")
+        record = parse_json_post_field(articles=data.get("articles", []))
 
-        stop_scroll, parse_data = parse_json_post_field(articles=data["articles"])
-        records.update(parse_data)
-
-        print(f"，已累積 {len(records)} 筆")
+    return record
 
 
-def run(playwright: Playwright, code: str):
-    browser = playwright.chromium.launch(headless=True)
-    context = browser.new_context()
-    page = browser.new_page()
-    page.route("**/*", block_resources)
-    page.on("response", handle_response)
-    page.goto(f"https://www.cmoney.tw/forum/stock/{code}")
-    # page.locator('iframe[title="「使用 Google 帳戶登入」對話方塊"]').content_frame.get_by_role(
-    #     "button", name="關閉"
-    # ).click()
-    page.locator(".sort__selected").click()
-    page.get_by_text("最新", exact=True).click()
+def get_cmoney_monthly_records(code: str, month: int, cursor: str) -> dict[dict[str, dict]]:
 
-    while not stop_scroll:
-        page.mouse.wheel(0, 3000)
-        page.wait_for_timeout(100)
+    records = {}
+    url, headers, params = get_parameter(code=code)
 
-    context.close()
-    browser.close()
+    while True:
+        if not cursor:
+            return records
+
+        params["cursor"] = cursor
+        response = requests.get(url, headers=headers, params=params, timeout=30, verify=False)
+        record = get_parse_data(response=response)
+
+        if not record:
+            return records
+
+        for data in record.values():
+            created_time = data.get("create_time")
+            target_date = datetime(2026, month, 1, 0, 0)
 
 
-def main():
-    global stop_scroll
-    global records
-    with sync_playwright() as playwright:
-        for code in ["6214", "2317"]:
-            run(playwright, code)
-            export_json(code=code, records=records)
-            export_csv(code=code, records=records)
-            stop_scroll = False
-            records = {}
+            if created_time > target_date:
+                print(f"created_time: {created_time}, target_date: {target_date}")
+                records.update(record)
+            else:
+                return records
+    
+        cursor = response.json().get("nextCursor")
+
+
+def main(code: str = "2317"):
+
+    records = {}
+    cursors = get_yearly_cursors(year=2026)
+    cursors = cursors[::-1]
+    
+    for index in range(len(cursors) - 1):
+        print(
+            f"正在取得 {code} 股票，{2026} 年 {len(cursors) - (index + 1)} 月的文章資料，cursor 為 {cursors[index]}"
+        )
+        records.update(
+            get_cmoney_monthly_records(
+                code=code, month=len(cursors) - (index + 1), cursor=cursors[index]
+            )
+        )
+        print("#" * 50)
+
+    print(f"已取得 {code} 股票，{2026} 年的文章資料，總共 {len(records)} 筆")
+    export_csv(code=code, records=records)
 
 
 if __name__ == "__main__":
     import time
 
+    import urllib3
+
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     start_time = time.perf_counter()
-    main()
+    main(code="6214")
     end_time = time.perf_counter()
     elapsed_time = time.perf_counter() - start_time
     minutes, seconds = divmod(elapsed_time, 60)
